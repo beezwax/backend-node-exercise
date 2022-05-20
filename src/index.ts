@@ -30,16 +30,16 @@ function toTransponder({ id, name }: TransponderWithParent): Transponder {
   return { id, name, children: [] as Transponder[] };
 }
 
-function buildTransponders(
+function buildTransponderGraph(
   transponders: TransponderWithParent[]
 ): Transponder[] {
-  const nodes = transponders
+  const rootNodes = transponders
     .filter((t) => t.parentId == null)
     .map(toTransponder);
 
-  const rest = transponders.filter((t) => t.parentId != null);
+  const childNodes = transponders.filter((t) => t.parentId != null);
 
-  const grouped = rest.reduce((acc, t) => {
+  const nodesByParentId = childNodes.reduce((acc, t) => {
     if (t.parentId == null) return acc;
 
     if (acc[t.parentId] == null) {
@@ -52,16 +52,18 @@ function buildTransponders(
   }, {} as Record<number, TransponderWithParent[]>);
 
   const buildTree = (t: Transponder): Transponder => {
-    t.children = (grouped[t.id] ?? []).map((t) => buildTree(toTransponder(t)));
+    t.children = (nodesByParentId[t.id] ?? []).map((t) =>
+      buildTree(toTransponder(t))
+    );
 
     return t;
   };
 
-  return nodes.map(buildTree);
+  return rootNodes.map(buildTree);
 }
 
-app.get("/transponders", async (_: Request, res: Response) => {
-  const transponders = await db
+async function fetchTransponders(): Promise<TransponderWithParent[]> {
+  return db
     .select(
       "transponders.id",
       "transponders.name",
@@ -73,7 +75,11 @@ app.get("/transponders", async (_: Request, res: Response) => {
       "transponders.id",
       "transponder_relations.childId"
     );
-  res.json(buildTransponders(transponders));
+}
+
+app.get("/transponders", async (_: Request, res: Response) => {
+  const transponders = await fetchTransponders();
+  res.json(buildTransponderGraph(transponders));
 });
 
 app.get("/count", async (req: Request, res: Response) => {
